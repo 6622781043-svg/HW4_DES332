@@ -1,315 +1,192 @@
 import math
 import random
+import hashlib
 
 # =========================================
-# SECTION 1: BASIC MATHEMATICS
+# BASIC MATH
 # =========================================
 
-def EuclidGCD(a, b):
-    """
-    Compute GCD using Euclidean Algorithm
-    """
-    while b != 0:
-        temp = b
-        b = a % b
-        a = temp
+def gcd(a, b):
+    while b:
+        a, b = b, a % b
     return a
 
 
-def moduloExp(a, m, n):
-    """
-    Compute a^m mod n using fast exponentiation
-    """
+def modexp(a, e, n):
     result = 1
-    base = a % n
-    exponent = m
-
-    while exponent > 0:
-        # if exponent is odd
-        if exponent % 2 == 1:
-            result = (result * base) % n
-
-        # square the base
-        base = (base * base) % n
-
-        # divide exponent by 2
-        exponent = exponent // 2
-
+    a %= n
+    while e > 0:
+        if e % 2:
+            result = (result * a) % n
+        a = (a * a) % n
+        e //= 2
     return result
 
 
 # =========================================
-# SECTION 2: PRIME GENERATION
+# PRIME GENERATION
 # =========================================
 
 def isPrime(n, k=5):
-    """
-    Probabilistic primality test (Fermat Test)
-    """
     if n < 2:
         return False
-
     for _ in range(k):
         a = random.randint(2, n - 2)
         if pow(a, n - 1, n) != 1:
             return False
-
     return True
 
 
-def generatePrime(bits):
-    """
-    Generate a random prime number of given bit size
-    """
+def genPrime(bits):
     while True:
         p = random.getrandbits(bits)
-
-        # ensure highest bit = 1 and odd number
         p |= (1 << bits - 1) | 1
-
         if isPrime(p):
             return p
 
 
 # =========================================
-# SECTION 3: MODULAR INVERSE
+# MOD INVERSE
 # =========================================
 
-def mulInverse(a, m):
-    """
-    Extended Euclidean Algorithm for modular inverse
-    """
-    m0 = m
-    x0 = 0
-    x1 = 1
-
-    if m == 1:
-        return 0
-
-    while a > 1:
-        q = a // m
-
-        temp = m
-        m = a % m
-        a = temp
-
-        temp = x0
-        x0 = x1 - q * x0
-        x1 = temp
-
-    if x1 < 0:
-        x1 += m0
-
-    return x1
+def modInverse(e, phi):
+    m0, x0, x1 = phi, 0, 1
+    while e > 1:
+        q = e // phi
+        e, phi = phi, e % phi
+        x0, x1 = x1 - q * x0, x0
+    return x1 + m0 if x1 < 0 else x1
 
 
 # =========================================
-# SECTION 4: RSA KEY GENERATION
+# KEY GENERATION
 # =========================================
 
-def rsaKeyGen(nOfBits=128):
-    """
-    Generate RSA public and private keys
-    """
+def keyGen(bits=128):
+    p = genPrime(bits // 2)
+    q = genPrime(bits // 2)
 
-    # Step 1: generate primes
-    p = generatePrime(nOfBits // 2)
-    q = generatePrime(nOfBits // 2)
-
-    # Step 2: compute modulus
     n = p * q
+    phi = (p - 1) * (q - 1)
 
-    # Step 3: compute phi(n)
-    phi_n = (p - 1) * (q - 1)
+    e = 65537
+    if gcd(e, phi) != 1:
+        return keyGen(bits)
 
-    # Step 4: choose e
-    while True:
-        e = random.randrange(2, phi_n)
-        if EuclidGCD(e, phi_n) == 1:
-            break
+    d = modInverse(e, phi)
 
-    # Step 5: compute d
-    d = mulInverse(e, phi_n)
-
-    # return keys
-    PR = (d, n)
-    PU = (e, n)
-
-    return (PR, PU)
+    return (d, n), (e, n)
 
 
 # =========================================
-# SECTION 5: BLOCK ENCRYPTION / DECRYPTION
+# TEXT ENCODING
 # =========================================
 
-def encryptBlock(M, K):
-    e, n = K
-    C = moduloExp(M, e, n)
-    return C
+def textToIntBlocks(text):
+    return [ord(c) for c in text]
 
 
-def decryptBlock(C, K):
-    d, n = K
-    M = moduloExp(C, d, n)
-    return M
-
-
-def encryptBlocks(Ms, K):
-    result = []
-    for m in Ms:
-        result.append(encryptBlock(m, K))
-    return result
-
-
-def decryptBlocks(Cs, K):
-    result = []
-    for c in Cs:
-        result.append(decryptBlock(c, K))
-    return result
+def intBlocksToText(blocks):
+    return "".join(chr(b) for b in blocks)
 
 
 # =========================================
-# SECTION 6: BIT STRING ENCRYPTION
+# ENCRYPT / DECRYPT
 # =========================================
 
-def encryptBitString(plainBitSeq, K):
-    e, n = K
+def encrypt(PU, text):
+    e, n = PU
+    blocks = textToIntBlocks(text)
+    return [modexp(b, e, n) for b in blocks]
 
-    blockSize = math.floor(math.log2(n))
 
-    # Step 1: split into blocks
-    Ms = []
-    i = 0
-    while i < len(plainBitSeq):
-        Ms.append(plainBitSeq[i:i + blockSize])
-        i += blockSize
-
-    # Step 2: padding last block
-    lastBlock = Ms[-1]
-    lastBlock = lastBlock + "1" + "0" * (blockSize - len(lastBlock) - 1)
-    Ms[-1] = lastBlock
-
-    # Step 3: convert to integers
-    Ms_int = []
-    for m in Ms:
-        Ms_int.append(int(m, 2))
-
-    # Step 4: encrypt
-    Cs = encryptBlocks(Ms_int, K)
-
-    # Step 5: convert back to binary
-    Cs_bin = []
-    for c in Cs:
-        binary = bin(c)[2:]
-        padded = "0" * (blockSize + 1 - len(binary)) + binary
-        Cs_bin.append(padded)
-
-    # Step 6: combine
-    cipherText = ""
-    for b in Cs_bin:
-        cipherText += b
-
-    return cipherText
+def decrypt(PR, cipher):
+    d, n = PR
+    return intBlocksToText([modexp(c, d, n) for c in cipher])
 
 
 # =========================================
-# SECTION 7: BIT STRING DECRYPTION
+# SHA-256 SIGNATURE
 # =========================================
 
-def descryptBitString(cipheredBitSeq, K):
-    d, n = K
+def sha256Hash(msg):
+    return int(hashlib.sha256(msg.encode()).hexdigest(), 16)
 
-    blockSize = math.floor(math.log2(n)) + 1
 
-    # Step 1: split blocks
-    Cs = []
-    i = 0
-    while i < len(cipheredBitSeq):
-        Cs.append(cipheredBitSeq[i:i + blockSize])
-        i += blockSize
+def sign(msg, PR):
+    d, n = PR
+    return modexp(sha256Hash(msg), d, n)
 
-    # Step 2: convert to integers
-    Cs_int = []
-    for c in Cs:
-        Cs_int.append(int(c, 2))
 
-    # Step 3: decrypt
-    Ms = decryptBlocks(Cs_int, K)
-
-    # Step 4: convert back to binary
-    Ms_bin = []
-    for m in Ms:
-        binary = bin(m)[2:]
-        padded = "0" * (blockSize - 1 - len(binary)) + binary
-        Ms_bin.append(padded)
-
-    plainBitSeq = "".join(Ms_bin)
-
-    # Step 5: remove padding
-    p = len(plainBitSeq) - 1
-    while plainBitSeq[p] == "0":
-        p -= 1
-
-    return plainBitSeq[:p]
+def verify(msg, sig, PU):
+    e, n = PU
+    return modexp(sig, e, n) == sha256Hash(msg)
 
 
 # =========================================
-# SECTION 8: TEXT ENCRYPTION
+# FILE ENCRYPTION
 # =========================================
 
-def encryptText(text, K):
-    # convert text to binary
-    bitString = ""
-    for b in text.encode("utf-8"):
-        bitString += "0" * (8 - len(bin(b)[2:])) + bin(b)[2:]
+def encryptFile(inputFile, outputFile, PU):
+    with open(inputFile, "r", encoding="utf-8") as f:
+        data = f.read()
 
-    return encryptBitString(bitString, K)
+    cipher = encrypt(PU, data)
+
+    with open(outputFile, "w") as f:
+        f.write(" ".join(map(str, cipher)))
 
 
-def descryptText(ciphertext, K):
-    plainBits = descryptBitString(ciphertext, K)
+def decryptFile(inputFile, outputFile, PR):
+    with open(inputFile, "r") as f:
+        data = list(map(int, f.read().split()))
 
-    plaintext = ""
-    i = 0
-    while i < len(plainBits):
-        chunk = plainBits[i:i + 8]
-        plaintext += chr(int(chunk, 2))
-        i += 8
+    text = decrypt(PR, data)
 
-    return plaintext
+    with open(outputFile, "w", encoding="utf-8") as f:
+        f.write(text)
 
 
 # =========================================
-# SECTION 9: TEST PROGRAM
+# DEMO
 # =========================================
 
 if __name__ == "__main__":
+    print("=== RSA ADVANCED SYSTEM ===")
 
-    print("=== RSA TEST PROGRAM ===")
-
-    # generate keys
-    PR, PU = rsaKeyGen(128)
+    PR, PU = keyGen(128)
 
     print("Public Key :", PU)
     print("Private Key:", PR)
 
-    # message
-    message = "Hello RSA Encryption"
+    message = "Hello Advanced RSA"
+    print("\nOriginal:", message)
 
-    print("\nOriginal Message:", message)
+    # Encrypt / Decrypt
+    cipher = encrypt(PU, message)
+    plain = decrypt(PR, cipher)
 
-    # encrypt
-    cipher = encryptText(message, PU)
-    print("\nEncrypted (first 100 bits):")
-    print(cipher[:100] + "...")
+    print("Encrypted:", cipher[:5], "...")
+    print("Decrypted:", plain)
 
-    # decrypt
-    decrypted = descryptText(cipher, PR)
-    print("\nDecrypted Message:", decrypted)
+    # Signature
+    sig = sign(message, PR)
+    print("\nSignature:", sig)
 
-if decrypted == message:
-    print("Decryption Successful")
-else:
-    print("Error in Decryption")
-    
-print("\n=== END TEST ===")
+    print("Verify:", "VALID" if verify(message, sig, PU) else "INVALID")
+
+    # Tamper Test
+    fake = "Hello Hacker"
+    print("Tampered:", "VALID" if verify(fake, sig, PU) else "INVALID")
+
+    # File Test
+    print("\n[File Test]")
+    with open("test.txt", "w", encoding="utf-8") as f:
+        f.write(message)
+
+    encryptFile("test.txt", "enc.txt", PU)
+    decryptFile("enc.txt", "dec.txt", PR)
+
+    print("File encryption complete")
+
+print("\n=== END ===")
