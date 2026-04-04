@@ -1,192 +1,202 @@
-import math
-import random
+import myRSA
 import hashlib
+import json
+import os
 
 # =========================================
-# BASIC MATH
+# SECTION 1: PATH SETUP (FIX COLAB)
 # =========================================
+print("\n[SETUP] Initializing environment...")
 
-def gcd(a, b):
-    while b:
-        a, b = b, a % b
-    return a
+BASE_DIR = os.getcwd()
+print(f"[SETUP] Working directory: {BASE_DIR}")
 
-
-def modexp(a, e, n):
-    result = 1
-    a %= n
-    while e > 0:
-        if e % 2:
-            result = (result * a) % n
-        a = (a * a) % n
-        e //= 2
-    return result
+def build_path(filename):
+    path = os.path.join(BASE_DIR, filename)
+    print(f"[SETUP] Building path for {filename}: {path}")
+    return path
 
 
 # =========================================
-# PRIME GENERATION
+# SECTION 2: LOAD KEYS
 # =========================================
+print("\n[KEY LOADING] Loading RSA keys from files...")
 
-def isPrime(n, k=5):
-    if n < 2:
-        return False
-    for _ in range(k):
-        a = random.randint(2, n - 2)
-        if pow(a, n - 1, n) != 1:
-            return False
-    return True
-
-
-def genPrime(bits):
-    while True:
-        p = random.getrandbits(bits)
-        p |= (1 << bits - 1) | 1
-        if isPrime(p):
-            return p
+def load_key(file_name):
+    path = build_path(file_name)
+    with open(path, "r") as f:
+        lines = f.read().strip().splitlines()
+    key = (int(lines[0]), int(lines[1]))
+    print(f"[KEY LOADING] Loaded {file_name}: {key}")
+    return key
 
 
 # =========================================
-# MOD INVERSE
+# SECTION 3: HASH FUNCTION
 # =========================================
+print("\n[HASH] Preparing SHA-256 hashing function...")
 
-def modInverse(e, phi):
-    m0, x0, x1 = phi, 0, 1
-    while e > 1:
-        q = e // phi
-        e, phi = phi, e % phi
-        x0, x1 = x1 - q * x0, x0
-    return x1 + m0 if x1 < 0 else x1
-
-
-# =========================================
-# KEY GENERATION
-# =========================================
-
-def keyGen(bits=128):
-    p = genPrime(bits // 2)
-    q = genPrime(bits // 2)
-
-    n = p * q
-    phi = (p - 1) * (q - 1)
-
-    e = 65537
-    if gcd(e, phi) != 1:
-        return keyGen(bits)
-
-    d = modInverse(e, phi)
-
-    return (d, n), (e, n)
+def compute_hash(message):
+    print(f"[HASH] Computing hash for message: {message}")
+    digest = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    print(f"[HASH] SHA-256 (hex): {digest}")
+    value = int(digest, 16)
+    print(f"[HASH] Converted to integer: {value}")
+    return value
 
 
 # =========================================
-# TEXT ENCODING
+# SECTION 4: SIGNATURE GENERATION
 # =========================================
+print("\n[SIGNATURE] Preparing signing function...")
 
-def textToIntBlocks(text):
-    return [ord(c) for c in text]
-
-
-def intBlocksToText(blocks):
-    return "".join(chr(b) for b in blocks)
-
-
-# =========================================
-# ENCRYPT / DECRYPT
-# =========================================
-
-def encrypt(PU, text):
-    e, n = PU
-    blocks = textToIntBlocks(text)
-    return [modexp(b, e, n) for b in blocks]
-
-
-def decrypt(PR, cipher):
-    d, n = PR
-    return intBlocksToText([modexp(c, d, n) for c in cipher])
+def create_signature(message, private_key):
+    print("\n[SIGNATURE] Creating digital signature...")
+    d, n = private_key
+    h = compute_hash(message)
+    signature = myRSA.moduloExp(h % n, d, n)
+    print(f"[SIGNATURE] Signature = (hash^d mod n): {signature}")
+    return signature
 
 
 # =========================================
-# SHA-256 SIGNATURE
+# SECTION 5: SIGNATURE VERIFICATION
 # =========================================
+print("\n[VERIFY] Preparing verification function...")
 
-def sha256Hash(msg):
-    return int(hashlib.sha256(msg.encode()).hexdigest(), 16)
-
-
-def sign(msg, PR):
-    d, n = PR
-    return modexp(sha256Hash(msg), d, n)
-
-
-def verify(msg, sig, PU):
-    e, n = PU
-    return modexp(sig, e, n) == sha256Hash(msg)
+def verify_signature(message, signature, public_key):
+    print("\n[VERIFY] Verifying signature...")
+    e, n = public_key
+    h = compute_hash(message)
+    check = myRSA.moduloExp(signature, e, n)
+    print(f"[VERIFY] Decrypted signature: {check}")
+    print(f"[VERIFY] Original hash mod n: {h % n}")
+    return check == (h % n)
 
 
 # =========================================
-# FILE ENCRYPTION
+# SECTION 6: PGP ENCRYPT (SEND)
 # =========================================
+print("\n[PGP SEND] Preparing encryption process...")
 
-def encryptFile(inputFile, outputFile, PU):
-    with open(inputFile, "r", encoding="utf-8") as f:
-        data = f.read()
+def pgp_send(message, sender_private, receiver_public):
+    print("\n================ PGP SEND ================")
+    print(f"[SEND] Original Message: {message}")
 
-    cipher = encrypt(PU, data)
+    signature = create_signature(message, sender_private)
 
-    with open(outputFile, "w") as f:
-        f.write(" ".join(map(str, cipher)))
+    print("\n[SEND] Encrypting message using receiver's public key...")
+    ciphertext = myRSA.encryptText(message, receiver_public)
+    print(f"[SEND] Ciphertext: {ciphertext[:80]}...")
 
+    envelope = {
+        "ciphertext": ciphertext,
+        "signature": signature
+    }
 
-def decryptFile(inputFile, outputFile, PR):
-    with open(inputFile, "r") as f:
-        data = list(map(int, f.read().split()))
-
-    text = decrypt(PR, data)
-
-    with open(outputFile, "w", encoding="utf-8") as f:
-        f.write(text)
+    print("[SEND] Envelope created successfully.")
+    return envelope
 
 
 # =========================================
-# DEMO
+# SECTION 7: PGP DECRYPT (RECEIVE)
 # =========================================
+print("\n[PGP RECEIVE] Preparing decryption process...")
 
-if __name__ == "__main__":
-    print("=== RSA ADVANCED SYSTEM ===")
+def pgp_receive(envelope, receiver_private, sender_public):
+    print("\n================ PGP RECEIVE ================")
 
-    PR, PU = keyGen(128)
+    ciphertext = envelope["ciphertext"]
+    signature = envelope["signature"]
 
-    print("Public Key :", PU)
-    print("Private Key:", PR)
+    print("[RECEIVE] Decrypting message...")
+    plaintext = myRSA.descryptText(ciphertext, receiver_private)
+    print(f"[RECEIVE] Decrypted Message: {plaintext}")
 
-    message = "Hello Advanced RSA"
-    print("\nOriginal:", message)
+    valid = verify_signature(plaintext, signature, sender_public)
 
-    # Encrypt / Decrypt
-    cipher = encrypt(PU, message)
-    plain = decrypt(PR, cipher)
+    if valid:
+        print("[RECEIVE] Signature VALID ✓")
+    else:
+        print("[RECEIVE] Signature INVALID ✗")
+        raise ValueError("Message integrity compromised!")
 
-    print("Encrypted:", cipher[:5], "...")
-    print("Decrypted:", plain)
+    return plaintext
 
-    # Signature
-    sig = sign(message, PR)
-    print("\nSignature:", sig)
 
-    print("Verify:", "VALID" if verify(message, sig, PU) else "INVALID")
+# =========================================
+# SECTION 8: SAVE / LOAD MESSAGE
+# =========================================
+print("\n[FILE] Preparing file operations...")
 
-    # Tamper Test
-    fake = "Hello Hacker"
-    print("Tampered:", "VALID" if verify(fake, sig, PU) else "INVALID")
+def save_message(envelope, filename):
+    path = build_path(filename)
+    with open(path, "w") as f:
+        json.dump({
+            "ciphertext": envelope["ciphertext"],
+            "signature": str(envelope["signature"])
+        }, f, indent=4)
+    print(f"[FILE] Message saved to {path}")
 
-    # File Test
-    print("\n[File Test]")
-    with open("test.txt", "w", encoding="utf-8") as f:
-        f.write(message)
+def load_message(filename):
+    path = build_path(filename)
+    with open(path, "r") as f:
+        data = json.load(f)
+    print(f"[FILE] Message loaded from {path}")
+    return {
+        "ciphertext": data["ciphertext"],
+        "signature": int(data["signature"])
+    }
 
-    encryptFile("test.txt", "enc.txt", PU)
-    decryptFile("enc.txt", "dec.txt", PR)
 
-    print("File encryption complete")
+# =========================================
+# SECTION 9: MAIN DEMO
+# =========================================
+print("\n[DEMO] Starting PGP Simulation...\n")
 
-print("\n=== END ===")
+def main():
+    PU_A = load_key("PU_A.txt")
+    PR_A = load_key("PR_A.txt")
+    PU_B = load_key("PU_B.txt")
+    PR_B = load_key("PR_B.txt")
+
+    print("\n========== ALICE → BOB ==========")
+    message = "Hello Bob! This is Alice. Meet me at the library at 5pm."
+
+    env1 = pgp_send(message, PR_A, PU_B)
+    save_message(env1, "alice_to_bob.json")
+
+    received1 = load_message("alice_to_bob.json")
+    result1 = pgp_receive(received1, PR_B, PU_A)
+
+    print(f"\n[RESULT] Bob reads: {result1}")
+
+    print("\n========== BOB → ALICE ==========")
+    reply = "Hi Alice! Confirmed. See you at 5pm."
+
+    env2 = pgp_send(reply, PR_B, PU_A)
+    save_message(env2, "bob_to_alice.json")
+
+    received2 = load_message("bob_to_alice.json")
+    result2 = pgp_receive(received2, PR_A, PU_B)
+
+    print(f"\n[RESULT] Alice reads: {result2}")
+
+    print("\n========== ATTACK TEST ==========")
+    tampered = dict(received1)
+    tampered["signature"] = 99999999
+
+    print("[ATTACK] Signature has been modified!")
+
+    try:
+        pgp_receive(tampered, PR_B, PU_A)
+    except Exception as e:
+        print(f"[ATTACK RESULT] {e}")
+
+    print("\n========== DEMO COMPLETE ==========")
+
+
+# =========================================
+# RUN PROGRAM
+# =========================================
+main()
